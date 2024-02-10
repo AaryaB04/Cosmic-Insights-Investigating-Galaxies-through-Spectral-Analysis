@@ -1,0 +1,361 @@
+```{r}
+library(tidyverse)
+library(ggplot2)
+install.packages("arrow")
+library(arrow)
+library(dplyr)
+```
+Random tests to make sure data can be accessed through the data folder created in my one drive environment 
+
+```{r}
+galaxy_zoo_df <- read_parquet("Data/gz2_catalog_with_modern_schema_no_paths.parquet")
+glimpse(galaxy_zoo_df)
+
+galaxy_zoo_df2 <- read_parquet("Data/nsa_v1_0_1_key_cols.parquet")
+glimpse(galaxy_zoo_df2)
+
+galaxy_zoo <- merge(galaxy_zoo_df, galaxy_zoo_df2, by='iauname')
+
+glimpse(galaxy_zoo)
+  
+galaxy_zoo_df <-
+filedir %>%
+paste("Data/gz2_catalog_with_modern_schema_no_paths.parquet", sep="") %>%
+read_parquet()
+```
+
+
+Research Q1:
+
+```{r}
+#df<-read.csv("")
+
+mean_column1 <-mean(df$P_EL,na.rm = TRUE)
+mean_column2 <-mean(df$P_CW,na.rm = TRUE)
+mean_column3 <-mean(df$P_ACW,na.rm=TRUE)
+mean_column4 <-mean(df$P_EDGE,na.rm=TRUE)
+mean_column5 <-mean(df$P_DK,na.rm=TRUE)
+mean_column6 <-mean(df$P_CS,na.rm=TRUE)
+names <- c("P_EL", "P_CW", "P_ACW", "P_EDGE", "P_DK", "P_CS")
+dayta <- c(mean_column1,mean_column2,mean_column3,mean_column4,mean_column5,mean_column6)
+
+#Hypothesis test
+t.test(dayta, mu=0.6)
+#data <- data.frame(A=mean_column1, B=mean_column2, C=mean_column3, D=mean_column4, E=mean_column5, F=mean_column6)
+#data_long<- gather(data, key = "varaible", value = "value")
+#ggplot(data_long, aes(x=variable, y=value)) + geom_boxplot() + labs(x = "Galaxies", y = "Average Spectra") + ggtitle("Mean averages of Galaxies Spectra")
+
+barplot(dayta, names.arg = names, xlab = "Galaxy names", ylab = "Average Spectra", main = "Galaxies Comapred to their average spectra")
+```
+
+
+Research Q2:
+
+“Are there equal fractions of Galactic transients (across all classes) in the training and testing data?”
+
+
+```{r}
+# Load metadata
+plastic_metadata <- read_csv("Data/plasticc_train_metadata.csv")
+glimpse(plastic_metadata)
+
+plastic_metadata %>% ggplot() + aes(x=true_target) + geom_histogram()
+
+# Summary Table 
+plasticc_summary <-
+plastic_metadata %>%
+group_by(true_target) %>%
+summarize(n=n())
+plasticc_summary
+
+
+
+plasticc_supernova <-
+plastic_metadata %>%
+filter(true_target == 90 | true_target == 67 | true_target == 52 | true_target == 42 | true_target == 62 | true_target == 95)
+
+glimpse(plasticc_supernova)
+
+
+
+
+new_summary <- plasticc_supernova %>% group_by(true_target) %>% summarize(n = n())
+
+new_summary
+
+ggplot(plasticc_supernova, aes(x = true_target)) + geom_bar()
+ggplot(plasticc_supernova, aes(x = factor(true_target), y = mwebv)) + geom_boxplot() + xlab("Supernova Class") +
+  ylab("MWEBV")
+
+
+```
+
+
+BOOTSTRAPPING 
+
+
+```{r}
+set.seed(123)
+
+n_bootstraps <- 1000
+bootstrapped_means <- tibble()
+for (i in 1:n_bootstraps) {
+  bootstrap_sample <- plasticc_supernova %>% 
+    sample_n(nrow(plasticc_supernova), replace = TRUE)
+  mean_mwebv <- bootstrap_sample %>%
+    group_by(true_target) %>%
+    summarise(mean_mwebv = mean(mwebv, na.rm = TRUE))
+  bootstrapped_means <- bind_rows(bootstrapped_means, mean_mwebv)
+}
+
+ggplot(bootstrapped_means, aes(x = factor(true_target), y = mean_mwebv)) +
+  geom_boxplot() +
+  xlab("True Target") +
+  ylab("Mean MWEBV") +
+  ggtitle("Bootstrap sampling of mean MWEBV by true target") +
+  theme_bw()
+
+
+```
+
+```{r}
+library(dplyr)
+
+complete_cases <- complete.cases(plasticc_supernova)
+complete_data <- plasticc_supernova[complete_cases, ]
+complete_data
+
+# set seed for reproducibility
+set.seed(123)
+
+# number of resampled datasets
+num_datasets <- 1000
+
+# resample the data
+resampled_datasets <- lapply(1:num_datasets, function(x) {
+  complete_data %>%
+    sample_n(size = nrow(complete_data), replace = TRUE)
+})
+
+# view the first resampled dataset
+head(resampled_datasets[[1]])
+
+
+
+
+
+ggplot(data = resampled_datasets[[1]], aes(x = factor(class), y = mwebv)) + 
+  geom_boxplot(aes(fill = category)) +
+  ggtitle("Distribution of MWEBV values for each supernova class")+
+  ylab("MWEBV") + 
+  xlab("Supernova Class")
+
+
+ggplot() + 
+  geom_boxplot(data = resampled_datasets[[1]], aes(x = factor(true_target), y = mwebv)) +
+  ggtitle("Resampled Data for MWEBV by Supernova Class") +
+  ylab("MWEBV") + 
+  xlab("Supernova Class")
+```
+
+```{r}
+
+
+# Create an empty data frame to store the means since the other technique is not working 
+resampled_means <- data.frame()
+
+# Loop through each resampled dataset
+for (i in seq_along(resampled_datasets)) {
+  # Group the data by true_target and calculate the mean mwebv
+  means_i <- resampled_datasets[[i]] %>%
+    group_by(true_target) %>%
+    summarize(mean_mwebv = mean(mwebv))
+  # Add the means to the data frame
+  resampled_means <- bind_rows(resampled_means, means_i)
+}
+
+# Perform ANOVA
+model <- lm(mean_mwebv ~ true_target, data = resampled_means)
+anova(model)
+
+
+
+```
+
+
+
+```{r}
+# use a function to take in each iteration of the data -> similar to a helper function 
+test_statistic <- function(data, indices) {
+  # obtain the resampled data 
+  resampled_data <- data[indices, ]
+  
+  # compute the average mwebv value for each supernova class
+  means <- tapply(resampled_data$mwebv, as.numeric(resampled_data$true_target), mean)
+  means_df <- data.frame(true_target = as.numeric(names(means)), mean_mwebv = means)
+  
+  # perform ANOVA
+  anova_result <- anova(lm(mean_mwebv ~ true_target, data = means_df))
+  
+  # return the F-statistic for each iteration 
+  return(anova_result$`F value`[1])
+}
+
+# perform bootstrap resampling and compute the bootstrap distribution
+set.seed(123) # for reproducibility
+bootstrap_result <- boot::boot(test_statistic, data = plasticc_supernova, R = 1000)
+bootstrap_distribution <- bootstrap_result$t
+bootstrap_distribution
+
+
+ggplot(data.frame(bootstrap_distribution), aes(x = bootstrap_distribution)) + 
+  geom_histogram(binwidth = 0.001, fill = "lightblue", color = "black") +
+  ggtitle("Bootstrap Distribution") +
+  xlab("F-statistic")
+
+str(resampled_datasets[1])
+resampled_datasets[1]
+
+missing_values <- sapply(resampled_datasets[1], function(x) sum(is.na(x)))
+print(missing_values)
+```
+
+
+
+
+
+```{r}
+# Check weather we can use the ANOVA Test 
+# Fit the ANOVA model
+model <- lm(mean_mwebv ~ true_target, data = resampled_means)
+
+# Create a data frame of residuals and predicted values
+residuals_df <- data.frame(residuals = resid(model), fitted = fitted(model))
+
+# Create a histogram of residuals
+ggplot(residuals_df, aes(x = residuals)) +
+  geom_histogram( fill = "lightblue", color = "black") +
+  ggtitle("Histogram of Residuals") +
+  xlab("Residuals") +
+  ylab("Frequency")
+
+# # Create a normal probability plot
+# ggplot(residuals_df, aes(sample = residuals)) +
+#   stat_qq() +
+#   stat_qq_line() +
+#   ggtitle("Normal Probability Plot of Residuals") +
+#   xlab("Theoretical Quantiles") +
+#   ylab("Sample Quantiles")
+# 
+
+```
+
+
+Confidence intervals
+
+
+```{r}
+# compute the confidence interval using the bootstrap distribution
+conf_int <- quantile(bootstrap_distribution, c(0.025, 0.975))
+conf_int
+
+```
+
+Q3
+```{r}
+library(tidyverse)
+install.packages("arrow")
+library(arrow)
+set.seed(123)
+
+df <- read_parquet("gz2_catalog_with_modern_schema_no_paths.parquet")
+glimpse(df)
+df2 <- read_parquet("nsa_v1_0_1_key_cols.parquet")
+glimpse(df2)
+df3 <- merge(df, df2, by="iauname")
+
+
+galaxydata <- read_csv("GalaxyZoo1_DR_table2.csv")
+glimpse(galaxydata)
+
+
+mean_column1 <-mean(galaxydata$P_EL,na.rm=TRUE)
+mean_column2 <-mean(galaxydata$P_CW,na.rm=TRUE)
+mean_column3 <-mean(galaxydata$P_ACW,na.rm=TRUE)
+mean_column4 <-mean(galaxydata$P_EDGE,na.rm=TRUE)
+mean_column5 <-mean(galaxydata$P_DK,na.rm=TRUE)
+mean_column6 <-mean(galaxydata$P_CS,na.rm=TRUE)
+
+mean_column_SPIRAL <- mean(galaxydata$SPIRAL,na.rm=TRUE) 
+mean_column_ELLIPTICAL <- mean(galaxydata$ELLIPTICAL,na.rm = TRUE)
+
+mean_spectra_data <- c(mean_column1, mean_column2, mean_column3, mean_column4, mean_column5, mean_column6)
+
+df_SPIRAL <- data.frame(x = mean_spectra_data, y = mean_column_SPIRAL)
+df_ELLIPTICAL <- data.frame(x = mean_spectra_data, y = mean_column_ELLIPTICAL)
+
+library(dplyr)
+
+df_SHAPE1 <- df_SPIRAL %>% 
+  mutate(y = as.numeric(y)) %>% 
+  arrange(y)
+
+ggplot(df_SPIRAL, aes(x, y)) +
+  geom_point() +
+  labs(title = "Mean Data for all Spectra Classes vs Mean Spiral Count ", x = "Spectra", y = "Spiral Count")
+
+df_SHAPE2 <- df_ELLIPTICAL %>% 
+  mutate(y = as.numeric(y)) %>% 
+  arrange(y)
+
+ggplot(df_ELLIPTICAL, aes(x, y)) +
+  geom_point() +
+  labs(title = "Mean Data for all Spectra Classes vs Mean Elliptical Count ", x = "Spectra", y = "Elliptical Count")
+
+#hypothesis test:
+
+spectra_spiral <- galaxydata %>% 
+  filter(SPIRAL == 1) %>% 
+  summarize(across(P_EL:P_CS, mean, na.rm = TRUE))
+
+spectra_elliptical <- galaxydata %>% 
+  filter(ELLIPTICAL == 1) %>% 
+  summarize(across(P_EL:P_CS, mean, na.rm = TRUE))
+
+df <- bind_rows(
+  spectra_spiral %>% mutate(Class = "Spiral"),
+  spectra_elliptical %>% mutate(Class = "Elliptical")
+)
+
+df %>% 
+  pivot_longer(cols = -Class, names_to = "Spectral Feature", values_to = "Mean Value") %>% 
+  pivot_wider(names_from = Class, values_from = "Mean Value") %>% 
+  knitr::kable(format = "html", caption = "Mean Spectral Features for Spiral and Elliptical Galaxies")
+
+
+# Mean values for elliptical in correlation to mean values in spectra
+x <- c( 0.5359473,  0.07400691, 0.0807363, 0.2050663, 0.07292444, 0.35985) #mean value of spectra for each galaxy class
+y <- c(0.09310661, 0.09310661, 0.09310661, 0.09310661, 0.09310661, 0.09310661) #mean elliptical count
+
+
+# Calculate the correlation coefficient
+correlation <- cor(x, y)
+
+# Perform hypothesis test
+p_value <- cor.test(x, y)$p.value
+
+
+# Mean values for spiral in correlation to mean values in spectra
+
+z <- c(0.2847918, 0.2847918, 0.2847918, 0.2847918, 0.28479185, 0.2847918)#mean spiral count
+
+# Calculate the correlation coefficient
+correlation <- cor(x, z)
+
+# Perform hypothesis test
+p_value <- cor.test(x, z)$p.value
+
+print(p_value)
+print(correlation)
+```
+
